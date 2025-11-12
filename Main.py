@@ -1,14 +1,17 @@
 import json
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
+from dotenv import load_dotenv
 
-TOKEN = "8439568306:AAF1McpAjnSw-E0P8Uvz3VRZq1Mdhw7GxIQ"
+# .env ფაილიდან ტოკენის წაკითხვა
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
-# პროდუქციის ჩატვირთვა data.json-დან
-with open("data.json", "r", encoding="utf-8") as f:
+with open("Data.json", "r", encoding="utf-8") as f:
     products = json.load(f)
 
 @dp.message_handler(commands=["start", "menu"])
