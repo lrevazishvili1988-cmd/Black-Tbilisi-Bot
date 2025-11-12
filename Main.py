@@ -28,28 +28,39 @@ async def start(message: types.Message):
         await bot.send_photo(message.chat.id, photo=photo, caption=caption, reply_markup=keyboard)
 
 
-# ---------------------- ბალანსის მენიუ ----------------------
-@dp.callback_query_handler(lambda c: c.data == "balance_menu")
-async def balance_menu(callback: types.CallbackQuery):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton("💰 მიმდინარე ბალანსი", callback_data="balance_show"),
-        InlineKeyboardButton("➕ ბალანსის შევსება", callback_data="balance_add"),
-        InlineKeyboardButton("🔙 უკან", callback_data="back_main")
-    )
-    await callback.message.edit_caption("💼 ბალანსის მენიუ:\nაირჩიეთ ქმედება 👇", reply_markup=keyboard)
+import requests
 
-
-@dp.callback_query_handler(lambda c: c.data == "balance_show")
-async def show_balance(callback: types.CallbackQuery):
-    await callback.answer()
-    await callback.message.answer("💰 შენი მიმდინარე ბალანსია: 0 GEL")
-
-
+# --- ბალანსის შევსება (CryptoBot ინტეგრაცია) ---
 @dp.callback_query_handler(lambda c: c.data == "balance_add")
 async def add_balance(callback: types.CallbackQuery):
     await callback.answer()
-    await callback.message.answer("💳 ბალანსის შევსების ფუნქცია მალე დაემატება 💸")
+    user_id = callback.from_user.id
+
+    # მომხმარებლისგან მოითხოვს თანხას
+    await callback.message.answer("შეიყვანე თანხა (USD-ში) რომლის შევსებაც გინდა 💵")
+
+    @dp.message_handler(lambda m: m.text.isdigit())
+    async def process_amount(message: types.Message):
+        amount = message.text
+        payload = str(user_id)
+
+        url = "https://pay.crypt.bot/api/createInvoice"
+        headers = {"Crypto-Pay-API-Token": os.getenv("CRYPTOPAY_TOKEN")}
+        data = {
+            "asset": "USDT",
+            "amount": amount,
+            "currency_type": "crypto",
+            "description": "Black Tbilisi Life ბალანსის შევსება",
+            "payload": payload
+        }
+
+        r = requests.post(url, headers=headers, json=data).json()
+        if r.get("ok"):
+            pay_url = r["result"]["pay_url"]
+            await message.answer(f"💳 გადახდის ბმული მზადაა:\n👉 {pay_url}")
+        else:
+            await message.answer("❌ ვერ მოხერხდა გადახდის ბმულის შექმნა.")
+
 
 
 # ---------------------- უკან დაბრუნება ----------------------
