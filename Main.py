@@ -1,73 +1,104 @@
-import json
-import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+import os
 from dotenv import load_dotenv
-import requests
 
 load_dotenv()
+TOKEN = os.getenv("TOKEN")
 
-BOT_TOKEN = os.getenv("TOKEN")
-CRYPTOPAY_TOKEN = os.getenv("CRYPTOPAY_TOKEN")
-
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
-with open("Data.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-# მონაცემების შენახვა
-def save_data():
-    with open("Data.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
+# 🏠 მთავარი მენიუ
 @dp.message_handler(commands=["start"])
-async def start_cmd(message: types.Message):
-    user_id = str(message.from_user.id)
-    if "users" not in data:
-        data["users"] = {}
-    if user_id not in data["users"]:
-        data["users"][user_id] = {"balance": 0}
-        save_data()
-    bal = data["users"][user_id]["balance"]
-    await message.answer(f"👋 მოგესალმები Black Tbilisi Life ბოტში!\n\n💰 შენი ბალანსია: {bal} GEL")
+async def start(message: types.Message):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("🛍 აირჩიეთ პროდუქტი", callback_data="products_menu"),
+        InlineKeyboardButton("💰 ბალანსი", callback_data="balance_menu")
+    )
 
-@dp.message_handler(commands=["balance"])
-async def balance_cmd(message: types.Message):
-    user_id = str(message.from_user.id)
-    bal = data["users"].get(user_id, {}).get("balance", 0)
-    await message.answer(f"💰 შენი ბალანსია: {bal} GEL")
+    photo_path = "banner.png"
+    caption = "👋 მოგესალმებით Black Tbilisi Meth მაღაზიაში !!\n\nაირჩიეთ ქმედება ქვემოთ 👇"
 
-@dp.message_handler(commands=["pay"])
-async def create_invoice(message: types.Message):
-    try:
-        args = message.text.split()
-        if len(args) < 2:
-            return await message.answer("გამოიყენე ფორმატი:\n`/pay 10` — გადახდა 10 GEL", parse_mode="Markdown")
+    with open(photo_path, "rb") as photo:
+        await bot.send_photo(message.chat.id, photo=photo, caption=caption, reply_markup=keyboard)
 
-        amount = float(args[1])
-        payload = str(message.from_user.id)  # რომ ვიცოდეთ, ვის ეკუთვნის გადახდა
+# 💰 ბალანსის მენიუ
+@dp.callback_query_handler(lambda c: c.data == "balance_menu")
+async def balance_menu(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("💰 მიმდინარე ბალანსი", callback_data="balance_show"),
+        InlineKeyboardButton("➕ ბალანსის შევსება", callback_data="balance_add"),
+        InlineKeyboardButton("🔙 უკან", callback_data="back_main")
+    )
+    await callback.message.edit_caption("💼 ბალანსის მენიუ:\nაირჩიეთ ქმედება 👇", reply_markup=keyboard)
 
-        url = "https://pay.crypt.bot/api/createInvoice"
-        headers = {"Crypto-Pay-API-Token": CRYPTOPAY_TOKEN}
-        params = {
-            "asset": "USDT",
-            "amount": amount,
-            "currency_type": "fiat",
-            "fiat": "USD",
-            "description": "Black Tbilisi Life balance refill",
-            "hidden_message": f"User ID: {payload}",
-            "payload": payload
-        }
-        r = requests.post(url, headers=headers, json=params).json()
+# 💰 მიმდინარე ბალანსი
+@dp.callback_query_handler(lambda c: c.data == "balance_show")
+async def show_balance(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("💰 შენი მიმდინარე ბალანსია: 0 GEL")
 
-        if r.get("ok"):
-            pay_url = r["result"]["pay_url"]
-            await message.answer(f"💳 გადახდის ბმული:\n👉 {pay_url}")
-        else:
-            await message.answer("❌ გადახდის ბმულის შექმნა ვერ მოხერხდა.")
-    except Exception as e:
-        await message.answer(f"შეცდომა: {e}")
+# ➕ ბალანსის შევსება
+@dp.callback_query_handler(lambda c: c.data == "balance_add")
+async def add_balance(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("💳 ბალანსის შევსების ფუნქცია მალე დაემატება 💸")
+
+# 🔙 უკან მთავარ მენიუში
+@dp.callback_query_handler(lambda c: c.data == "back_main")
+async def back_main(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("🛍 აირჩიეთ პროდუქტი", callback_data="products_menu"),
+        InlineKeyboardButton("💰 ბალანსი", callback_data="balance_menu")
+    )
+    photo_path = "banner.png"
+    caption = "🏠 დაბრუნდით მთავარ მენიუში.\nაირჩიეთ ქმედება 👇"
+    with open(photo_path, "rb") as photo:
+        await callback.message.edit_media(InputMediaPhoto(photo, caption=caption), reply_markup=keyboard)
+
+# 🛍 პროდუქციის მენიუ
+@dp.callback_query_handler(lambda c: c.data == "products_menu")
+async def products_menu(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("🔥 მეტა 0.15 გ", callback_data="product_meta15"),
+        InlineKeyboardButton("💎 მეტა 0.30 გ", callback_data="product_meta30"),
+        InlineKeyboardButton("👑 მეტა 0.50 გ", callback_data="product_meta50"),
+        InlineKeyboardButton("🔙 უკან", callback_data="back_main")
+    )
+    await callback.message.edit_caption("🛍 აირჩიეთ სასურველი პროდუქტი 👇", reply_markup=keyboard)
+
+# პროდუქტის დეტალები
+@dp.callback_query_handler(lambda c: c.data.startswith("product_"))
+async def product_details(callback: types.CallbackQuery):
+    data = callback.data
+    if data == "product_meta15":
+        text = "🔥 **მეტა 0.15 გ**\n💵 ფასი: 115 GEL"
+    elif data == "product_meta30":
+        text = "💎 **მეტა 0.30 გ**\n💵 ფასი: 200 GEL"
+    elif data == "product_meta50":
+        text = "👑 **მეტა 0.50 გ**\n💵 ფასი: 350 GEL"
+    else:
+        text = "❌ პროდუქტი ვერ მოიძებნა."
+
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("💳 ყიდვა", callback_data=f"buy_{data}"),
+        InlineKeyboardButton("🔙 უკან", callback_data="products_menu")
+    )
+
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+# ყიდვის ღილაკი (ჯერ მხოლოდ შეტყობინება)
+@dp.callback_query_handler(lambda c: c.data.startswith("buy_"))
+async def buy_product(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("💳 გადახდის ფუნქცია მალე დაემატება (CryptoBot ინტეგრაცია მოდის).")
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
