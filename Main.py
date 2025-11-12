@@ -21,7 +21,7 @@ async def start(message: types.Message):
         InlineKeyboardButton("💬 Support", callback_data="support_menu")
     )
 
-    photo_path = "banner.png"
+    photo_path = "banner.PNG"
     caption = "👋 მოგესალმებით Black Tbilisi Meth მაღაზიაში !!\n\nაირჩიეთ ქმედება ქვემოთ 👇"
 
     with open(photo_path, "rb") as photo:
