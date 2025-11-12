@@ -1,176 +1,82 @@
 import os
-import random
 import shutil
-import requests
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
-from dotenv import load_dotenv
 
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
-CRYPTOPAY_TOKEN = os.getenv("CRYPTOPAY_TOKEN")
-
-bot = Bot(token=TOKEN)
+BOT_TOKEN = "YOUR_BOT_TOKEN"  # ჩასვი შენი ბოტის ტოკენი
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-# ძირითადი საქაღალდე ფაილებისთვის
-FILES_DIR = "delivery_files"
-USED_DIR = "used_files"
+BASE_DIR = "delivery_files"
+DELIVERED_DIR = "delivered_files"
 
-# შექმნის შემთხვევაში "used_files" თუ არ არსებობს
-os.makedirs(USED_DIR, exist_ok=True)
+# მხოლოდ ეს 4 რაიონი იქნება გათვალისწინებული
+DISTRICTS = ["გლდანი", "ვარკეთილი", "ისანი", "საბურთალო"]
 
-
-# ---------------------- მთავარი მენიუ ----------------------
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("🛍 პროდუქცია", callback_data="products_menu"),
-        InlineKeyboardButton("💰 ბალანსი", callback_data="balance_menu"),
-        InlineKeyboardButton("🧾 ბოლო ყიდვა", callback_data="last_purchase"),
-        InlineKeyboardButton("💬 Support", callback_data="support_menu")
-    )
-
-    photo_path = "banner.PNG"
-    caption = "👋 მოგესალმებით Black Tbilisi Meth მაღაზიაში !!\n\nაირჩიეთ ქმედება ქვემოთ 👇"
-
-    if os.path.exists(photo_path):
-        with open(photo_path, "rb") as photo:
-            await bot.send_photo(message.chat.id, photo=photo, caption=caption, reply_markup=keyboard)
-    else:
-        await message.answer(caption, reply_markup=keyboard)
-
-
-# ---------------------- პროდუქციის მენიუ ----------------------
-@dp.callback_query_handler(lambda c: c.data == "products_menu")
-async def products_menu(callback: types.CallbackQuery):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton("🔥 მეტა 0.15 გ — 115 GEL", callback_data="product_meta15"),
-        InlineKeyboardButton("💎 მეტა 0.30 გ — 200 GEL", callback_data="product_meta30"),
-        InlineKeyboardButton("👑 მეტა 0.50 გ — 350 GEL", callback_data="product_meta50"),
-        InlineKeyboardButton("🔙 უკან", callback_data="back_main")
-    )
-    await callback.message.edit_caption("🛍 აირჩიეთ სასურველი პროდუქტი 👇", reply_markup=keyboard)
-
-
-# --- ამოწმებს ხელმისაწვდომ რაიონებს ---
-def get_available_regions(weight_folder):
-    path = os.path.join(FILES_DIR, weight_folder)
-    if not os.path.exists(path):
+# ✅ აბრუნებს მხოლოდ იმ რაიონებს, სადაც ატვირთული ფაილი არსებობს
+def get_available_districts(weight):
+    weight_path = os.path.join(BASE_DIR, str(weight))
+    if not os.path.exists(weight_path):
         return []
 
-    return [
-        name for name in os.listdir(path)
-        if os.path.isdir(os.path.join(path, name)) and os.listdir(os.path.join(path, name))
-    ]
+    available = []
+    for district in DISTRICTS:
+        district_path = os.path.join(weight_path, district)
+        if os.path.isdir(district_path) and os.listdir(district_path):
+            available.append(district)
+    return available
 
-
-# --- აბრუნებს შემთხვევით ფაილს ---
-def get_random_file(weight_folder, region):
-    path = os.path.join(FILES_DIR, weight_folder, region)
-    if not os.path.exists(path):
-        return None
-    files = os.listdir(path)
+# ✅ აგზავნის ფაილს და გადააქვს delivered_files-ში
+async def send_and_move_file(chat_id, weight, district):
+    district_path = os.path.join(BASE_DIR, str(weight), district)
+    if not os.path.exists(district_path):
+        await bot.send_message(chat_id, "📁 ფაილი ვერ მოიძებნა.")
+        return
+    
+    files = os.listdir(district_path)
     if not files:
-        return None
-    return os.path.join(path, random.choice(files))
+        await bot.send_message(chat_id, "❌ ამ რაიონში ფაილები აღარ არის.")
+        return
 
+    file_name = files[0]
+    file_path = os.path.join(district_path, file_name)
+    delivered_path = os.path.join(DELIVERED_DIR, str(weight), district)
+    os.makedirs(delivered_path, exist_ok=True)
 
-# ---------------------- რაიონის არჩევა ----------------------
-@dp.callback_query_handler(lambda c: c.data.startswith("product_"))
-async def product_details(callback: types.CallbackQuery):
-    products = {
-        "product_meta15": ("🔥 მეტა 0.15 გ", "0.15", 115),
-        "product_meta30": ("💎 მეტა 0.30 გ", "0.30", 200),
-        "product_meta50": ("👑 მეტა 0.50 გ", "0.50", 350),
-    }
+    # 📤 გაგზავნა მომხმარებელზე
+    with open(file_path, "rb") as f:
+        await bot.send_document(chat_id, f)
 
-    key = callback.data
-    if key not in products:
-        return await callback.message.answer("❌ პროდუქტი ვერ მოიძებნა.")
+    # 📦 გადატანა delivered_files-ში
+    shutil.move(file_path, os.path.join(delivered_path, file_name))
+    await bot.send_message(chat_id, f"✅ ფაილი გაგზავნილია და გადატანილია საქაღალდეში {delivered_path}")
 
-    name, weight, price = products[key]
-    available_regions = get_available_regions(weight)
+# 📋 ბრძანება — ხელმისაწვდომი რაიონების სია
+@dp.message_handler(commands=["areas"])
+async def show_districts(message: types.Message):
+    weights = ["0.15", "0.30", "0.50"]
+    text = "📦 ხელმისაწვდომი რაიონები:\n\n"
+    for w in weights:
+        available = get_available_districts(w)
+        if available:
+            text += f"⚖️ {w} გრამი:\n" + "\n".join([f"• {d}" for d in available]) + "\n\n"
+    if text.strip() == "📦 ხელმისაწვდომი რაიონები:":
+        text = "⛔ ამჟამად ფაილები არ არის ატვირთული."
+    await message.answer(text)
 
-    if not available_regions:
-        return await callback.message.answer("❌ ამ წონაზე რაიონები ჯერ არ არის დამატებული.")
+# 📋 ტესტად ფაილის გაგზავნა ხელით
+@dp.message_handler(commands=["send"])
+async def send_example(message: types.Message):
+    # ფორმატი: /send 0.15 ვარკეთილი
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("გამოიყენე ფორმატი: /send 0.15 ვარკეთილი")
+        return
+    weight, district = parts[1], parts[2]
+    if district not in DISTRICTS:
+        await message.answer("❌ ასეთი რაიონი არ არსებობს სიაში.")
+        return
+    await send_and_move_file(message.chat.id, weight, district)
 
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    for region in available_regions:
-        keyboard.add(InlineKeyboardButton(region, callback_data=f"region_{weight}_{region}"))
-
-    await callback.message.answer(
-        f"{name}\n💵 ფასი: {price} GEL\n📍 აირჩიეთ მიწოდების რაიონი 👇",
-        reply_markup=keyboard
-    )
-
-
-# ---------------------- ყიდვა ----------------------
-@dp.callback_query_handler(lambda c: c.data.startswith("region_"))
-async def region_selected(callback: types.CallbackQuery):
-    _, weight, region = callback.data.split("_", 2)
-
-    confirm_keyboard = InlineKeyboardMarkup(row_width=1)
-    confirm_keyboard.add(
-        InlineKeyboardButton("✅ დადასტურება და მიღება", callback_data=f"buy_{weight}_{region}"),
-        InlineKeyboardButton("🔙 უკან", callback_data="products_menu")
-    )
-
-    await callback.message.answer(
-        f"📦 არჩეული წონა: {weight} გ\n📍 რაიონი: {region}\n\nგსურთ შეკვეთის დადასტურება?",
-        reply_markup=confirm_keyboard
-    )
-
-
-# ---------------------- ყიდვის დადასტურება და ფაილის გაგზავნა ----------------------
-@dp.callback_query_handler(lambda c: c.data.startswith("buy_"))
-async def buy_product(callback: types.CallbackQuery):
-    _, weight, region = callback.data.split("_", 2)
-    file_path = get_random_file(weight, region)
-
-    if file_path and os.path.exists(file_path):
-        with open(file_path, "rb") as f:
-            await callback.message.answer_photo(f, caption=f"📍 {region}\n📦 თქვენი შეკვეთა ✔️")
-
-        # გადააქვს ფაილი used_files-ში
-        used_folder = os.path.join(USED_DIR, weight, region)
-        os.makedirs(used_folder, exist_ok=True)
-        shutil.move(file_path, os.path.join(used_folder, os.path.basename(file_path)))
-
-    else:
-        await callback.message.answer("❌ ამ რაიონისთვის ფაილი ვერ მოიძებნა.")
-
-
-# ---------------------- Support ----------------------
-@dp.callback_query_handler(lambda c: c.data == "support_menu")
-async def support(callback: types.CallbackQuery):
-    await callback.message.answer("💬 დახმარებისთვის მოგვწერე: @support_username")
-
-
-# ---------------------- უკან დაბრუნება ----------------------
-@dp.callback_query_handler(lambda c: c.data == "back_main")
-async def back_main(callback: types.CallbackQuery):
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("🛍 პროდუქცია", callback_data="products_menu"),
-        InlineKeyboardButton("💰 ბალანსი", callback_data="balance_menu"),
-        InlineKeyboardButton("🧾 ბოლო ყიდვა", callback_data="last_purchase"),
-        InlineKeyboardButton("💬 Support", callback_data="support_menu")
-    )
-
-    caption = "🏠 დაბრუნდით მთავარ მენიუში.\nაირჩიეთ ქმედება 👇"
-    photo_path = "banner.PNG"
-
-    if os.path.exists(photo_path):
-        with open(photo_path, "rb") as photo:
-            await callback.message.edit_media(InputMediaPhoto(photo, caption=caption), reply_markup=keyboard)
-    else:
-        await callback.message.answer(caption, reply_markup=keyboard)
-
-
-# ---------------------- ბოტის გაშვება ----------------------
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
